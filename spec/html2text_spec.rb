@@ -43,11 +43,7 @@ describe Html2Text do
   end
 
   describe "#remove_leading_and_trailing_whitespace" do
-    let(:subject) do
-      input.dup.tap do |s|
-        Html2Text.new(nil).remove_leading_and_trailing_whitespace(s)
-      end
-    end
+    let(:subject) { Html2Text.new(nil).remove_leading_and_trailing_whitespace(input) }
 
     context "an empty string" do
       let(:input) { "" }
