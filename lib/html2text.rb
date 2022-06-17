@@ -24,18 +24,20 @@ class Html2Text
   end
 
   def convert
-    output = iterate_over(doc)
-    output = remove_leading_and_trailing_whitespace(output)
-    output = remove_unnecessary_empty_lines(output)
+    output = process(doc)
+    remove_leading_and_trailing_whitespace(output)
+    remove_unnecessary_empty_lines(output)
     output.strip
   end
 
   def remove_leading_and_trailing_whitespace(text)
-    text.gsub(/[ \t]*\n[ \t]*/im, "\n").gsub(/ *\t */im, "\t")
+    # String#gsub! returns nil if no substition was performed, so these calls can't be chained.
+    text.gsub!(/[ \t]*\n[ \t]*/im, "\n")
+    text.gsub!(/ *\t */im, "\t")
   end
 
   def remove_unnecessary_empty_lines(text)
-    text.gsub(/\n\n\n*/im, "\n\n")
+    text.gsub!(/\n\n\n*/im, "\n\n")
   end
 
   def trimmed_whitespace(text)
@@ -55,78 +57,106 @@ class Html2Text
     end
   end
 
-  def iterate_over(node)
-    return trimmed_whitespace(node.text) if node.text?
+  def process(root_node)
+    # The original implementation used recursion to traverse the DOM, but that can cause stack
+    # overflow in the case of incredibly deeply nested elements.  Instead, keep a local stack of
+    # nodes to be processed, in order.
+    #
+    # We need to ensure that the pre-processing for a node is done before any of its children are
+    # processed, and that the post-processing is done after all its children are processed.
+    #
+    # Original:
+    #
+    # - start at root node
+    # - process node
+    #   - emit prefix for node
+    #   - recursivly process each child node
+    #   - emit suffix for node
+    #
+    # New:
+    #
+    # - push element for root node onto the stack
+    # - until stack is empty
+    #   - pop top element from stack
+    #   - emit prefix for node
+    #   - push element to process suffix for node
+    #   - push element for each child node
 
-    if ["style", "head", "title", "meta", "script"].include?(node.name.downcase)
-      return ""
-    end
+    output = ''
+    elements_to_process = [{ type: :full, node: root_node }]
 
-    output = []
+    until elements_to_process.empty?
+      elem = elements_to_process.shift
+      node = elem[:node]
 
-    output << prefix_whitespace(node)
-    output += node.children.map do |child|
-      iterate_over(child)
-    end
-    output << suffix_whitespace(node)
-
-    output = output.compact.join("") || ""
-
-    if node.name.downcase == "a"
-      output = wrap_link(node, output)
-    end
-    if node.name.downcase == "img"
-      output = "[image]"
+      case elem[:type]
+      when :full
+        text, process_children = prefix_node(node)
+        output << text
+        elements_to_process.unshift({ type: :suffix, node: node })
+        if process_children
+          node.children.reverse.each do |child|
+            elements_to_process.unshift({ type: :full, node: child })
+          end
+        end
+      when :suffix
+        output << suffix_node(node)
+      end
     end
 
     output
   end
 
-  def prefix_whitespace(node)
-    case node.name.downcase
-      when "hr"
-        "---------------------------------------------------------------\n"
+  def prefix_node(node)
+    return [trimmed_whitespace(node.text), false] if node.text?
+    return ["[image]", false] if node.name.downcase == "img"
 
-      when "h1", "h2", "h3", "h4", "h5", "h6", "ol", "ul"
-        "\n"
-
-      when "tr", "p", "div"
-        "\n"
-
-      when "td", "th"
-        "\t"
-
-      when "li"
-        "- "
+    if ["style", "head", "title", "meta", "script"].include?(node.name.downcase)
+      return ["", false]
     end
+
+    output = case node.name.downcase
+             when "hr"
+               "---------------------------------------------------------------\n"
+
+             when "h1", "h2", "h3", "h4", "h5", "h6", "ol", "ul"
+               "\n"
+
+             when "tr", "p", "div"
+               "\n"
+
+             when "td", "th"
+               "\t"
+
+             when "li"
+               "- "
+
+             else
+               ""
+             end
+    return [output, true]
   end
 
-  def suffix_whitespace(node)
-    case node.name.downcase
-      when "h1", "h2", "h3", "h4", "h5", "h6"
-        # add another line
-        "\n"
+  def suffix_node(node)
+    output = case node.name.downcase
+             when "h1", "h2", "h3", "h4", "h5", "h6"
+               # add another line
+               "\n"
 
-      when "p", "br"
-        "\n" if next_node_name(node) != "div"
+             when "p", "br"
+               "\n" if next_node_name(node) != "div"
 
-      when "li"
-        "\n"
+             when "li"
+               "\n"
 
-      when "div"
-        # add one line only if the next child isn't a div
-        "\n" if next_node_name(node) != "div" && next_node_name(node) != nil
-    end
-  end
-
-  # links are returned in [text](link) format
-  def wrap_link(node, output)
-    name = node.attribute("name")
-    output = output.strip
-
-    case next_node_name(node)
-      when "h1", "h2", "h3", "h4", "h5", "h6"
-        output += "\n"
+             when "div"
+               # add one line only if the next child isn't a div
+               "\n" if next_node_name(node) != "div" && next_node_name(node) != nil
+             end
+    output ||= ""
+    # Add an extra newline after links before headers
+    if node.name.downcase == "a" && %w(h1 h2 h3 h4 h5 h6).include?(next_node_name(node))
+      output << "\n"
     end
 
     output
