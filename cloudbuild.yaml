@@ -1,0 +1,25 @@
+steps:
+  - id: 'bundle install'
+    name: gcr.io/repcore-prod/yw-ci:3.0.4
+    env:
+    - 'RAILS_ENV=test'
+    script: |
+      #!/usr/bin/env bash
+      source /nvm/nvmrc
+      bundle install
+    waitFor: ['-']
+    volumes:
+    - name: 'bundle'
+      path: '/usr/local/bundle'
+  - id: 'rake ci'
+    name: gcr.io/repcore-prod/yw-ci:3.0.4
+    env:
+    - 'RAILS_ENV=test'
+    - 'CLOUDBUILD_PG=postgres-14-7'
+    script: |
+      #!/usr/bin/env bash
+      source /nvm/nvmrc
+      bundle exec rake ci
+    volumes:
+    - name: 'bundle'
+      path: '/usr/local/bundle'
