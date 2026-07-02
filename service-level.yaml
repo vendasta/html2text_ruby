@@ -1,0 +1,6 @@
+services:
+  - name: html2text_ruby
+    owner: honey-badger
+    language: ruby
+    nonServiceType: library
+    description: "Ruby gem that converts HTML into a plain text format via DOM traversal."
